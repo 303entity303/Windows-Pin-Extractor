@@ -1,5 +1,38 @@
 # Windows Pin Extractor
 
+Beginner-friendly overview
+
+What is a Windows PIN / Windows Hello?
+
+- Windows Hello is a set of sign-in technologies built into Windows that allow users to authenticate using PINs, biometrics, or security keys instead of passwords.
+- A Windows PIN is a short code (numeric or alphanumeric) that unlocks a device for a specific user account. It is different from a Windows account password and is bound to the device.
+
+What does this project do?
+
+- This project provides tools to extract the cryptographic material that Windows uses to verify a Windows Hello PIN from a Windows installation (live or offline), and to perform offline PIN guessing (brute force) against the extracted data.
+- In plain terms: it helps you (when authorized) recover or test a Windows Hello PIN by extracting the protected verification data and checking PIN guesses locally.
+
+Who should use this?
+
+- Forensic investigators who need to analyze a Windows machine they are authorized to examine.
+- Security testers and red-teamers performing an authorized assessment.
+- System owners trying to recover access to a machine they own and are allowed to analyze.
+
+Warning / responsible use
+
+- This tool interacts with sensitive system data. Do NOT use it on systems you do not own or are not explicitly authorized to examine.
+- Misuse can violate laws and organizational policies. Only operate under explicit authorization.
+
+Quick conceptual workflow (non-technical)
+
+1. Acquire the relevant Windows files (registry hives, DPAPI secrets, and the Ngc directory) from the target system or its offline image.
+2. The extractor reads those files and reconstructs a hash-like verification string (a hashcat-ready Windows Hello line).
+3. The cracker repeatedly derives candidate secrets from PIN guesses and checks them against the extracted verification data until it finds a match.
+
+---
+
+Technical documentation
+
 A practical toolkit for extracting and cracking Windows Hello PIN material from a live or offline Windows installation. This repository combines a PowerShell-based acquisition helper with Python-based extraction and brute-force cracking logic.
 
 The project is primarily focused on Windows Hello for Business / Windows Hello PIN artifacts and the hashcat-compatible `$WINHELLO$*SHA512*...` format. It is designed for offline forensic analysis, penetration testing, and authorized recovery workflows on systems you are explicitly permitted to investigate.
@@ -252,4 +285,3 @@ Contributions are welcome if they improve reliability, add support for more edge
 This repository is a focused, technical toolkit for working with Windows Hello PIN artifacts. It is best understood as a forensic and authorized-recovery utility rather than a general-purpose password tool.
 
 If you want, I can also generate a more polished version of this README tailored for GitHub with badges, a usage diagram, a troubleshooting section, and a stronger security disclaimer.
-
