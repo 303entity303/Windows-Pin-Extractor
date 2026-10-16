@@ -1,2 +1,255 @@
-# Windows-Pin-Extractor
-Contains code to extract windows pins
+# Windows Pin Extractor
+
+A practical toolkit for extracting and cracking Windows Hello PIN material from a live or offline Windows installation. This repository combines a PowerShell-based acquisition helper with Python-based extraction and brute-force cracking logic.
+
+The project is primarily focused on Windows Hello for Business / Windows Hello PIN artifacts and the hashcat-compatible `$WINHELLO$*SHA512*...` format. It is designed for offline forensic analysis, penetration testing, and authorized recovery workflows on systems you are explicitly permitted to investigate.
+
+## Project overview
+
+This repository contains:
+
+- `Pin Extractor.ps1` — a PowerShell workflow that requests Administrator rights, reads protected system files directly from the volume, and invokes the extraction pipeline.
+- `hash_extractor.py` — a Python utility that parses Windows Hello artifacts such as the `Ngc` directory, `SYSTEM`, `SECURITY`, and DPAPI keys to recover a hashcat-ready Windows Hello PIN hash.
+- `hash_cracker.py` — a Python brute-force engine for testing numeric or alphanumeric PIN candidates against the extracted Windows Hello hash.
+- `LICENSE` — MIT license.
+
+The repository is split roughly between PowerShell and Python components, reflecting its two-phase workflow: acquisition and cracking.
+
+## Why this project exists
+
+Windows Hello PINs store protected material within Windows system locations and DPAPI-managed keys. This project provides a way to:
+
+1. locate the relevant PIN metadata in the Windows installation,
+2. extract the encrypted Windows Hello PIN hash from offline registry and DPAPI material,
+3. convert that into a hashcat-compatible `$WINHELLO$*SHA512*...` format,
+4. brute-force candidate PINs using a configurable numeric or alphanumeric search space.
+
+This is useful in controlled environments such as:
+
+- incident response and forensic analysis,
+- authorized red team evaluation,
+- local security research,
+- recovery of a PIN on a machine the owner has explicitly authorized you to examine.
+
+## Important usage notice
+
+This tooling interacts with sensitive Windows system data and can be abused for unauthorized access.
+
+Use it only when:
+
+- you have explicit authorization to inspect the system,
+- you are operating within a legitimate forensic or security testing scope,
+- you comply with local laws, organizational policy, and the relevant software/security framework.
+
+This project is provided for educational and authorized-analysis purposes and should not be used on systems without permission.
+
+## Repository contents
+
+```text
+Windows-Pin-Extractor/
+├── LICENSE
+├── Pin Extractor.ps1
+├── hash_extractor.py
+├── hash_cracker.py
+└── README.md
+```
+
+## How it works
+
+### 1. Acquisition phase
+
+The PowerShell script `Pin Extractor.ps1` performs the following:
+
+- checks for Administrator rights,
+- relaunches itself elevated if needed,
+- uses raw disk access APIs to read files directly from the NTFS volume,
+- copies protected system hives (`SYSTEM`, `SECURITY`) to an extraction directory,
+- grants access to the `Ngc` directory,
+- invokes the hash extraction process.
+
+This part is useful because Windows Hello data is often protected by the filesystem and access restrictions. The script avoids standard file access limitations by reading raw disk extents and writing reconstructed copies of the relevant files.
+
+### 2. Extraction phase
+
+`hash_extractor.py` parses the extracted artifacts and reconstructs the Windows Hello hash. The script expects:
+
+- the Windows crypto keys directory,
+- the system master key directory,
+- the `SYSTEM` hive,
+- the `SECURITY` hive,
+- the `Ngc` directory or PIN GUID.
+
+It reads DPAPI-protected values and emits a hash in the format:
+
+```text
+$WINHELLO$*SHA512*{pin_iterations}*{pin_salt}*{sign}*{masterkey}*{hmac}*{verif_blob}*{entropy}
+```
+
+That output is intended for cracking or offline validation.
+
+### 3. Cracking phase
+
+`hash_cracker.py` brute-forces Windows Hello PIN candidates using the derived hash. It supports:
+
+- numeric PINs (`0-9`),
+- alphanumeric PINs (`a-z`, `A-Z`, `0-9`),
+- configurable length ranges,
+- a custom character set,
+- multiprocessing for parallel candidate checking.
+
+The script is intentionally pure Python and uses the documented Windows Hello verification logic; it is not a high-speed GPU solution, but it is functional for realistic Windows-style PIN lengths.
+
+## Requirements
+
+### Windows host / offline image
+
+You will need access to a Windows installation or offline disk image containing the relevant Windows Hello artifacts.
+
+Typical paths include:
+
+- `C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Microsoft\Crypto\Keys`
+- `C:\Windows\System32\Microsoft\Protect\S-1-5-18\User`
+- `C:\Windows\System32\config\SYSTEM`
+- `C:\Windows\System32\config\SECURITY`
+- `C:\Windows\ServiceProfiles\LocalService\AppData\Local\Microsoft\Ngc`
+
+### Python dependencies
+
+For the Python extractor:
+
+```bash
+pip install pycryptodome dpapick3
+```
+
+The extractor expects `dpapick3` and `PyCryptodome` to be available.
+
+### PowerShell
+
+The PowerShell helper is designed for Windows PowerShell execution on a Windows environment with Administrator privileges.
+
+## Quick start
+
+### Option A: Use the PowerShell helper
+
+Run the script elevated:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Pin Extractor.ps1
+```
+
+The script will:
+
+- validate elevation,
+- dump the relevant system files to an `Extracted` folder,
+- run the extraction tool,
+- prompt whether to attempt cracking.
+
+If the repository does not contain packaged `.exe` binaries for the extraction/cracking modules, run the Python scripts directly instead.
+
+### Option B: Use the Python tools directly
+
+#### Extract the hash
+
+```bash
+python hash_extractor.py \
+  --cryptokeys "C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Microsoft\Crypto\Keys" \
+  --masterkey "C:\Windows\System32\Microsoft\Protect\S-1-5-18\User" \
+  --system "C:\Windows\System32\config\SYSTEM" \
+  --security "C:\Windows\System32\config\SECURITY" \
+  --ngc "C:\Windows\ServiceProfiles\LocalService\AppData\Local\Microsoft\Ngc"
+```
+
+This will print a hashcat-style Windows Hello hash if the required artifacts are valid.
+
+#### Crack the hash
+
+Numeric PIN example:
+
+```bash
+python hash_cracker.py --hash-file hash.txt --mode numeric --min-length 4 --max-length 6 --workers 4
+```
+
+Alphanumeric example:
+
+```bash
+python hash_cracker.py --hash-file hash.txt --mode alpha --min-length 4 --max-length 6 --workers 4
+```
+
+Custom charset example:
+
+```bash
+python hash_cracker.py --hash-file hash.txt --mode numeric --min-length 4 --max-length 6 --charset 0123456789
+```
+
+The script can also run a built-in self-test:
+
+```bash
+python hash_cracker.py --self-test
+```
+
+## Example output
+
+The extraction step will output lines similar to:
+
+```text
+$WINHELLO$*SHA512*10000*00761655*...*...*...*...
+```
+
+The cracker will print progress and may eventually report:
+
+```text
+[+] FOUND: '1234'  (tried 23,420 guesses in 3.2s)
+```
+
+## File-by-file description
+
+### `Pin Extractor.ps1`
+
+This is the entry-point helper for live Windows analysis. It:
+
+- ensures admin privileges,
+- reads the raw volume to reconstruct protected Windows files,
+- sets permissions on the `Ngc` folder,
+- invokes the extraction workflow,
+- optionally attempts to crack the recovered PIN.
+
+### `hash_extractor.py`
+
+This is the core logic used to read Windows Hello artifacts and convert them to a hashcat-compatible format. It contains logic for:
+
+- parsing the NGC directory,
+- matching the correct protector metadata,
+- reading LSA secrets and DPAPI state,
+- decrypting masterkeys and key properties,
+- producing a `$WINHELLO$...` string.
+
+### `hash_cracker.py`
+
+This script is a direct brute-force implementation for the hash format generated by the extractor. It uses the Windows Hello verification algorithm and tests candidate PINs against the hash until a valid one is found or the configured search space is exhausted.
+
+## Limitations and caveats
+
+- This workflow depends on access to the correct Windows system artifacts; missing or altered files can prevent successful extraction.
+- The Python cracker is intentionally slow compared to hashcat GPU acceleration; it is a pure Python brute-force implementation.
+- Numeric PINs are generally easier to brute-force than alphanumeric ones.
+- Some Windows installations use TPM-backed or nonstandard key material that may not be supported by this script.
+- If the relevant crypto material is not present or the environment is not a standard offline Windows install, extraction may fail.
+
+## License
+
+This project is released under the MIT License. See the `LICENSE` file for the complete text.
+
+## Contributing
+
+Contributions are welcome if they improve reliability, add support for more edge cases, or improve usability. Please keep the project aligned with:
+
+- correct Windows Hello artifact handling,
+- clear documentation,
+- safe and responsible usage.
+
+## Final note
+
+This repository is a focused, technical toolkit for working with Windows Hello PIN artifacts. It is best understood as a forensic and authorized-recovery utility rather than a general-purpose password tool.
+
+If you want, I can also generate a more polished version of this README tailored for GitHub with badges, a usage diagram, a troubleshooting section, and a stronger security disclaimer.
+
